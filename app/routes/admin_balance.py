@@ -1,30 +1,42 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from app.schemas import Ok
 from app.models import Balance, User as UserModel
 from app.auth import get_current_user
 from app.database import get_db
+from pydantic import BaseModel, Field
 
-router = APIRouter(prefix="/api/v1/admin/balance", tags=["admin", "balance"])
+class DepositBody(BaseModel):
+    user_id: str
+    ticker: str
+    amount: int = Field(..., gt=0)
 
-@router.post("/deposit")
-def deposit(user_id: str, ticker: str, amount: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+class WithdrawBody(BaseModel):
+    user_id: str
+    ticker: str
+    amount: int = Field(..., gt=0)
+
+router = APIRouter()
+
+@router.post("/deposit", response_model=Ok)
+def deposit(body: DepositBody, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role != "ADMIN":
         raise HTTPException(403, "Forbidden")
-    balance = db.query(Balance).get((user_id, ticker))
+    balance = db.query(Balance).get((body.user_id, body.ticker))
     if not balance:
-        balance = Balance(user_id=user_id, ticker=ticker, amount=0)
+        balance = Balance(user_id=body.user_id, ticker=body.ticker, amount=0)
         db.add(balance)
-    balance.amount += amount
+    balance.amount += body.amount
     db.commit()
     return {"success": True}
 
-@router.post("/withdraw")
-def withdraw(user_id: str, ticker: str, amount: int, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+@router.post("/withdraw", response_model=Ok)
+def withdraw(body: WithdrawBody, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role != "ADMIN":
         raise HTTPException(403, "Forbidden")
-    balance = db.query(Balance).get((user_id, ticker))
-    if not balance or balance.amount < amount:
+    balance = db.query(Balance).get((body.user_id, body.ticker))
+    if not balance or balance.amount < body.amount:
         raise HTTPException(400, "Insufficient balance")
-    balance.amount -= amount
+    balance.amount -= body.amount
     db.commit()
-    return {"success": True}
+    return {"success": True} 

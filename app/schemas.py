@@ -1,8 +1,7 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import List, Optional
 from enum import Enum
 from datetime import datetime
-import uuid
 
 class UserRole(str, Enum):
     USER = "USER"
@@ -22,7 +21,7 @@ class NewUser(BaseModel):
     name: str = Field(..., min_length=3)
 
 class User(BaseModel):
-    id: uuid.UUID
+    id: str
     name: str
     role: UserRole
     api_key: str
@@ -50,34 +49,33 @@ class MarketOrderBody(BaseModel):
     ticker: str
     qty: int = Field(..., ge=1)
 
-class LimitOrder(LimitOrderBody):
-    id: uuid.UUID
+class LimitOrder(BaseModel):
+    id: str
     status: OrderStatus
-    user_id: uuid.UUID
+    user_id: str
     timestamp: datetime
+    body: LimitOrderBody
     filled: int = 0
 
-class MarketOrder(MarketOrderBody):
-    id: uuid.UUID
+class MarketOrder(BaseModel):
+    id: str
     status: OrderStatus
-    user_id: uuid.UUID
+    user_id: str
     timestamp: datetime
+    body: MarketOrderBody
 
 class CreateOrderResponse(BaseModel):
     success: bool = True
-    order_id: uuid.UUID
+    order_id: str
 
 class Ok(BaseModel):
     success: bool = True
 
 class Transaction(BaseModel):
-    id: uuid.UUID
     ticker: str
     amount: int
     price: int
     timestamp: datetime
-    buyer_id: uuid.UUID
-    seller_id: uuid.UUID
 
 class ValidationError(BaseModel):
     loc: list
@@ -85,4 +83,4 @@ class ValidationError(BaseModel):
     type: str
 
 class HTTPValidationError(BaseModel):
-    detail: List[ValidationError]
+    detail: List[ValidationError] 

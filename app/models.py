@@ -1,82 +1,73 @@
-from sqlalchemy import Column, String, Integer, ForeignKey, Enum as SQLEnum, DateTime
-from sqlalchemy.orm import relationship, declarative_base
-import uuid
+from sqlalchemy import Column, String, Integer, DateTime, Enum as SQLEnum, ForeignKey
+from sqlalchemy.orm import declarative_base, relationship
 from datetime import datetime
-from enum import Enum
+import enum
 
 Base = declarative_base()
 
-class UserRole(str, Enum):
+class UserRole(str, enum.Enum):
     USER = "USER"
     ADMIN = "ADMIN"
 
-class OrderStatus(str, Enum):
-    NEW = "NEW"
-    EXECUTED = "EXECUTED"
-    PARTIALLY_EXECUTED = "PARTIALLY_EXECUTED"
-    CANCELLED = "CANCELLED"
-
-class Direction(str, Enum):
-    BUY = "BUY"
-    SELL = "SELL"
-
 class User(Base):
     __tablename__ = 'users'
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
-    api_key = Column(String, unique=True, nullable=False)
     role = Column(SQLEnum(UserRole), default=UserRole.USER)
+    api_key = Column(String, unique=True, nullable=False)
+    balances = relationship("Balance", back_populates="user")
+
+class Instrument(Base):
+    __tablename__ = 'instruments'
+    ticker = Column(String, primary_key=True)
+    name = Column(String, nullable=False)
 
 class Balance(Base):
     __tablename__ = 'balances'
     user_id = Column(String, ForeignKey('users.id'), primary_key=True)
     ticker = Column(String, ForeignKey('instruments.ticker'), primary_key=True)
     amount = Column(Integer, default=0)
-
-    user = relationship("User")
+    user = relationship("User", back_populates="balances")
     instrument = relationship("Instrument")
 
-class Instrument(Base):
-    __tablename__ = 'instruments'
-    name = Column(String, nullable=False)
-    ticker = Column(String, primary_key=True)
+class OrderStatus(str, enum.Enum):
+    NEW = "NEW"
+    EXECUTED = "EXECUTED"
+    PARTIALLY_EXECUTED = "PARTIALLY_EXECUTED"
+    CANCELLED = "CANCELLED"
 
-class LimitOrderBody:
+class Direction(str, enum.Enum):
+    BUY = "BUY"
+    SELL = "SELL"
+
+class LimitOrder(Base):
+    __tablename__ = 'limit_orders'
+    id = Column(String, primary_key=True)
+    status = Column(SQLEnum(OrderStatus), default=OrderStatus.NEW)
+    user_id = Column(String, ForeignKey('users.id'))
+    timestamp = Column(DateTime, default=datetime.utcnow)
     direction = Column(SQLEnum(Direction))
-    ticker = Column(String)
+    ticker = Column(String, ForeignKey('instruments.ticker'))
     qty = Column(Integer)
     price = Column(Integer)
-
-class MarketOrderBody:
-    direction = Column(SQLEnum(Direction))
-    ticker = Column(String)
-    qty = Column(Integer)
-
-class LimitOrder(Base, LimitOrderBody):
-    __tablename__ = 'limit_orders'
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    status = Column(SQLEnum(OrderStatus))
-    user_id = Column(String, ForeignKey('users.id'))
-    timestamp = Column(DateTime, default=datetime.utcnow)
     filled = Column(Integer, default=0)
 
-class MarketOrder(Base, MarketOrderBody):
+class MarketOrder(Base):
     __tablename__ = 'market_orders'
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    status = Column(SQLEnum(OrderStatus))
+    id = Column(String, primary_key=True)
+    status = Column(SQLEnum(OrderStatus), default=OrderStatus.NEW)
     user_id = Column(String, ForeignKey('users.id'))
     timestamp = Column(DateTime, default=datetime.utcnow)
+    direction = Column(SQLEnum(Direction))
+    ticker = Column(String, ForeignKey('instruments.ticker'))
+    qty = Column(Integer)
 
 class Transaction(Base):
     __tablename__ = 'transactions'
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = Column(String, primary_key=True)
     ticker = Column(String, ForeignKey('instruments.ticker'))
     amount = Column(Integer)
     price = Column(Integer)
     timestamp = Column(DateTime, default=datetime.utcnow)
     buyer_id = Column(String, ForeignKey('users.id'))
-    seller_id = Column(String, ForeignKey('users.id'))
-    
-    buyer = relationship("User", foreign_keys=[buyer_id])
-    seller = relationship("User", foreign_keys=[seller_id])
-    instrument = relationship("Instrument")
+    seller_id = Column(String, ForeignKey('users.id')) 
