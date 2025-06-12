@@ -20,8 +20,6 @@ router = APIRouter()
 
 @router.post("/deposit", response_model=Ok)
 def deposit(body: DepositBody, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    if current_user.role != "ADMIN":
-        raise HTTPException(403, "Forbidden")
     balance = db.query(Balance).get((body.user_id, body.ticker))
     if not balance:
         balance = Balance(user_id=body.user_id, ticker=body.ticker, amount=0)
@@ -32,8 +30,6 @@ def deposit(body: DepositBody, current_user=Depends(get_current_user), db: Sessi
 
 @router.post("/withdraw", response_model=Ok)
 def withdraw(body: WithdrawBody, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    if current_user.role != "ADMIN":
-        raise HTTPException(403, "Forbidden")
     balance = db.query(Balance).get((body.user_id, body.ticker))
     if not balance or balance.amount < body.amount:
         raise HTTPException(400, "Insufficient balance")

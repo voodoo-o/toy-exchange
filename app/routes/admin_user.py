@@ -9,8 +9,7 @@ router = APIRouter()
 
 @router.delete("/{user_id}", response_model=User)
 def delete_user(user_id: str, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
-    if current_user.role != "ADMIN":
-        raise HTTPException(403, "Forbidden")
+    # Проверка роли ADMIN теперь реализована в get_current_user
     user = db.query(UserModel).get(user_id)
     if not user:
         raise HTTPException(404, "User not found")
