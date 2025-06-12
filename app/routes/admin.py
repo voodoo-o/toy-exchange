@@ -1,0 +1,39 @@
+from fastapi import APIRouter, Depends, HTTPException
+from app.schemas import User, Instrument, Ok
+from app.models import User as UserModel, Instrument as InstrumentModel
+from app.auth import get_current_user
+from app.database import get_db
+from sqlalchemy.orm import Session
+
+router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+
+@router.delete("/user/{user_id}", response_model=User)
+def delete_user(user_id: str, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "ADMIN":
+        raise HTTPException(403, "Forbidden")
+    user = db.query(UserModel).get(user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+    db.delete(user)
+    db.commit()
+    return user
+
+@router.post("/instrument", response_model=Ok)
+def add_instrument(instrument: Instrument, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "ADMIN":
+        raise HTTPException(403, "Forbidden")
+    inst = InstrumentModel(**instrument.dict())
+    db.add(inst)
+    db.commit()
+    return {"success": True}
+
+@router.delete("/instrument/{ticker}", response_model=Ok)
+def delete_instrument(ticker: str, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "ADMIN":
+        raise HTTPException(403, "Forbidden")
+    inst = db.query(InstrumentModel).get(ticker)
+    if not inst:
+        raise HTTPException(404, "Instrument not found")
+    db.delete(inst)
+    db.commit()
+    return {"success": True}
