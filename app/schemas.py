@@ -71,10 +71,13 @@ class Ok(BaseModel):
     success: bool = True
 
 class Transaction(BaseModel):
+    id: uuid.UUID
     ticker: str
     amount: int
     price: int
     timestamp: datetime
+    buyer_id: uuid.UUID
+    seller_id: uuid.UUID
 
 class ValidationError(BaseModel):
     loc: list

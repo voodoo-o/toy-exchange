@@ -66,3 +66,17 @@ class MarketOrder(Base, MarketOrderBody):
     status = Column(SQLEnum(OrderStatus))
     user_id = Column(String, ForeignKey('users.id'))
     timestamp = Column(DateTime, default=datetime.utcnow)
+
+class Transaction(Base):
+    __tablename__ = 'transactions'
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    ticker = Column(String, ForeignKey('instruments.ticker'))
+    amount = Column(Integer)
+    price = Column(Integer)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    buyer_id = Column(String, ForeignKey('users.id'))
+    seller_id = Column(String, ForeignKey('users.id'))
+    
+    buyer = relationship("User", foreign_keys=[buyer_id])
+    seller = relationship("User", foreign_keys=[seller_id])
+    instrument = relationship("Instrument")
