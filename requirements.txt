@@ -8,3 +8,6 @@ passlib
 email-validator
 gunicorn
 python-dotenv
+pytest
+pytest-asyncio
+httpx

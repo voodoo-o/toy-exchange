@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Получаем админский ключ из переменных окружения или используем значение по умолчанию
-ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "admin_secret_key_123")
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "admin_secret_key")
 
 def get_current_user(authorization: str = Header(None), db: Session = Depends(get_db)):
     if not authorization or not authorization.startswith("TOKEN "):

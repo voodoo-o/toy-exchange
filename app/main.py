@@ -10,6 +10,7 @@ from app.routes import (
 )
 from app.database import Base, engine
 import logging
+import os
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,3 +57,17 @@ async def http_exception_handler(request, exc):
 async def general_exception_handler(request, exc):
     logger.error(f"Unexpected error: {str(exc)}")
     return {"detail": "Internal server error"}, 500
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", "8000"))
+    ssl_keyfile = os.getenv("SSL_KEYFILE")
+    ssl_certfile = os.getenv("SSL_CERTFILE")
+    
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=port,
+        ssl_keyfile=ssl_keyfile if ssl_keyfile else None,
+        ssl_certfile=ssl_certfile if ssl_certfile else None
+    )
