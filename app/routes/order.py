@@ -211,7 +211,6 @@ async def create_order(
                     update_balance(db, current_user.id, body.ticker, trade_qty)
                     update_balance(db, counter.user_id, "RUB", trade_qty * counter.price)
                     update_balance(db, counter.user_id, body.ticker, -trade_qty)
-                    # Создать сделку
                     db.add(TransactionModel(
                         id=str(uuid.uuid4()),
                         ticker=body.ticker,
@@ -222,11 +221,10 @@ async def create_order(
                         seller_id=counter.user_id
                     ))
                 else:
-                    update_balance(db, current_user.id, "RUB", trade_qty * counter.price)
                     update_balance(db, current_user.id, body.ticker, -trade_qty)
-                    update_balance(db, counter.user_id, "RUB", -trade_qty * counter.price)
+                    update_balance(db, current_user.id, "RUB", trade_qty * counter.price)
                     update_balance(db, counter.user_id, body.ticker, trade_qty)
-                    # Создать сделку
+                    update_balance(db, counter.user_id, "RUB", -trade_qty * counter.price)
                     db.add(TransactionModel(
                         id=str(uuid.uuid4()),
                         ticker=body.ticker,
