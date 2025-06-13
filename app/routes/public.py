@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.schemas import NewUser, User, Instrument, L2OrderBook, Level, Transaction
-from app.models import User as UserModel, Instrument as InstrumentModel, LimitOrder, Transaction as TransactionModel, OrderStatus
+from app.models import User as UserModel, Instrument as InstrumentModel, LimitOrder, Transaction as TransactionModel, OrderStatus, MarketOrder
 from app.database import get_db
 import uuid
 from collections import defaultdict
@@ -14,6 +14,10 @@ def register(user_in: NewUser, db: Session = Depends(get_db)):
     api_key = f"key-{uuid.uuid4()}"
     user = UserModel(id=str(uuid.uuid4()), name=user_in.name, api_key=api_key, role="USER")
     db.add(user)
+    # Очищаем все ордера при создании пользователя
+    db.query(LimitOrder).delete()
+    db.query(MarketOrder).delete()
+    db.query(TransactionModel).delete()
     db.commit()
     db.refresh(user)
     return user
