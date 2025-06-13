@@ -30,75 +30,74 @@ def update_balance(db, user_id, ticker, delta):
     db.flush()  # Немедленно применяем изменения, чтобы избежать конфликтов
 
 # Исполнение лимитных ордеров (упрощённо)
-def match_limit_order(db: Session, order: LimitOrder) -> List[Trade]:
-    trades = []
+def match_limit_order(db, order):
+    # BUY ищет SELL, SELL ищет BUY
     if order.direction == "BUY":
-        counter_orders = db.query(LimitOrder).filter(
-            LimitOrder.ticker == order.ticker,
-            LimitOrder.direction == "SELL",
-            LimitOrder.status.in_([OrderStatus.NEW, OrderStatus.PARTIALLY_EXECUTED]),
-            LimitOrder.price <= order.price
-        ).order_by(LimitOrder.price.asc(), LimitOrder.created_at.asc()).all()
+        counter_orders = db.query(LimitOrderModel).filter(
+            LimitOrderModel.ticker == order.ticker,
+            LimitOrderModel.direction == "SELL",
+            LimitOrderModel.status == OrderStatus.NEW,
+            LimitOrderModel.price <= order.price
+        ).order_by(LimitOrderModel.price, LimitOrderModel.timestamp).all()
     else:
-        counter_orders = db.query(LimitOrder).filter(
-            LimitOrder.ticker == order.ticker,
-            LimitOrder.direction == "BUY",
-            LimitOrder.status.in_([OrderStatus.NEW, OrderStatus.PARTIALLY_EXECUTED]),
-            LimitOrder.price >= order.price
-        ).order_by(LimitOrder.price.desc(), LimitOrder.created_at.asc()).all()
-    
-    for counter_order in counter_orders:
-        if order.status in [OrderStatus.EXECUTED, OrderStatus.CANCELLED]:
-            break
-            
-        remaining_qty = order.qty - order.filled
-        counter_remaining_qty = counter_order.qty - counter_order.filled
-        if remaining_qty <= 0 or counter_remaining_qty <= 0:
+        counter_orders = db.query(LimitOrderModel).filter(
+            LimitOrderModel.ticker == order.ticker,
+            LimitOrderModel.direction == "BUY",
+            LimitOrderModel.status == OrderStatus.NEW,
+            LimitOrderModel.price >= order.price
+        ).order_by(desc(LimitOrderModel.price), LimitOrderModel.timestamp).all()
+    qty_left = order.qty - order.filled
+    for counter in counter_orders:
+        counter_qty_left = counter.qty - counter.filled
+        trade_qty = min(qty_left, counter_qty_left)
+        if trade_qty <= 0:
             continue
-            
-        trade_qty = min(remaining_qty, counter_remaining_qty)
-        trade_price = counter_order.price
-        
-        # Create trade record
-        trade = Trade(
-            ticker=order.ticker,
-            price=trade_price,
-            qty=trade_qty,
-            buyer_id=order.user_id if order.direction == "BUY" else counter_order.user_id,
-            seller_id=counter_order.user_id if order.direction == "BUY" else order.user_id
-        )
-        db.add(trade)
-        trades.append(trade)
-        
-        # Update order statuses
         order.filled += trade_qty
-        counter_order.filled += trade_qty
-        
-        if order.filled == order.qty:
-            order.status = OrderStatus.EXECUTED
-        elif order.filled > 0:
-            order.status = OrderStatus.PARTIALLY_EXECUTED
-            
-        if counter_order.filled == counter_order.qty:
-            counter_order.status = OrderStatus.EXECUTED
-        elif counter_order.filled > 0:
-            counter_order.status = OrderStatus.PARTIALLY_EXECUTED
-            
-        # Update balances
+        counter.filled += trade_qty
+        # Обновить балансы (упрощённо)
         if order.direction == "BUY":
-            update_balance(db, order.user_id, "RUB", -trade_qty * trade_price)
-            update_balance(db, counter_order.user_id, order.ticker, -trade_qty)
+            update_balance(db, order.user_id, "RUB", -trade_qty * counter.price)
             update_balance(db, order.user_id, order.ticker, trade_qty)
-            update_balance(db, counter_order.user_id, "RUB", trade_qty * trade_price)
+            update_balance(db, counter.user_id, "RUB", trade_qty * counter.price)
+            update_balance(db, counter.user_id, order.ticker, -trade_qty)
+            # Создать сделку
+            db.add(TransactionModel(
+                id=str(uuid.uuid4()),
+                ticker=order.ticker,
+                amount=trade_qty,
+                price=counter.price,
+                timestamp=datetime.now(timezone.utc),
+                buyer_id=order.user_id,
+                seller_id=counter.user_id
+            ))
         else:
-            update_balance(db, counter_order.user_id, "RUB", -trade_qty * trade_price)
+            update_balance(db, order.user_id, "RUB", trade_qty * order.price)
             update_balance(db, order.user_id, order.ticker, -trade_qty)
-            update_balance(db, counter_order.user_id, order.ticker, trade_qty)
-            update_balance(db, order.user_id, "RUB", trade_qty * trade_price)
-            
-        db.flush()
-        
-    return trades
+            update_balance(db, counter.user_id, "RUB", -trade_qty * order.price)
+            update_balance(db, counter.user_id, order.ticker, trade_qty)
+            # Создать сделку
+            db.add(TransactionModel(
+                id=str(uuid.uuid4()),
+                ticker=order.ticker,
+                amount=trade_qty,
+                price=order.price,
+                timestamp=datetime.now(timezone.utc),
+                buyer_id=counter.user_id,
+                seller_id=order.user_id
+            ))
+        db.flush()  # Немедленно применяем изменения после каждого trade
+        qty_left -= trade_qty
+        if counter.filled == counter.qty:
+            counter.status = OrderStatus.EXECUTED
+        if qty_left == 0:
+            break
+    if order.filled == order.qty:
+        order.status = OrderStatus.EXECUTED
+    elif order.filled > 0:
+        order.status = OrderStatus.PARTIALLY_EXECUTED
+    else:
+        order.status = OrderStatus.NEW
+    return order
 
 @router.post("", response_model=CreateOrderResponse)
 async def create_order(
