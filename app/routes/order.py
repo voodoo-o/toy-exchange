@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from app.schemas import LimitOrderBody, MarketOrderBody, CreateOrderResponse, LimitOrder, MarketOrder, Ok
-from app.models import LimitOrder as LimitOrderModel, MarketOrder as MarketOrderModel, OrderStatus, Balance
+from app.models import LimitOrder as LimitOrderModel, MarketOrder as MarketOrderModel, OrderStatus, Balance, Instrument as InstrumentModel
 from app.auth import get_current_user
 from app.database import get_db
 import uuid
@@ -25,6 +25,7 @@ def update_balance(db, user_id, ticker, delta):
     bal.amount += delta
     if bal.amount < 0:
         raise HTTPException(400, "Insufficient balance")
+    db.flush()  # Немедленно применяем изменения, чтобы избежать конфликтов
 
 # Исполнение лимитных ордеров (упрощённо)
 def match_limit_order(db, order):
@@ -93,16 +94,18 @@ async def create_order(
             body = MarketOrderBody(**body_json)
             is_limit = False
         order_id = str(uuid.uuid4())
-        # Проверка баланса для BUY
-        if body.direction == "BUY":
-            price = getattr(body, 'price', 1)
-            if get_balance(db, current_user.id, "RUB") < body.qty * price:
-                raise HTTPException(400, "Insufficient balance for buy")
-        # Проверка баланса для SELL
-        if body.direction == "SELL":
-            if get_balance(db, current_user.id, body.ticker) < body.qty:
-                raise HTTPException(400, "Insufficient balance for sell")
+        # Проверка существования инструмента
+        instrument = db.query(InstrumentModel).get(body.ticker)
+        if not instrument:
+            raise HTTPException(400, "Instrument not found")
+        # Проверка баланса и встречных заявок ДО создания ордера и изменения баланса
         if is_limit:
+            if body.direction == "BUY":
+                if get_balance(db, current_user.id, "RUB") < body.qty * body.price:
+                    raise HTTPException(400, "Insufficient balance for buy")
+            if body.direction == "SELL":
+                if get_balance(db, current_user.id, body.ticker) < body.qty:
+                    raise HTTPException(400, "Insufficient balance for sell")
             order = LimitOrderModel(
                 id=order_id,
                 status=OrderStatus.NEW,
@@ -118,11 +121,9 @@ async def create_order(
             db.flush()
             match_limit_order(db, order)
             db.commit()
-            # Если ордер не исполнен вообще, он остаётся в стакане
             if order.filled == 0:
                 pass
         else:
-            # Для MarketOrder выбрасываем ошибку, если нет встречных заявок
             if body.direction == "BUY":
                 counter_orders = db.query(LimitOrderModel).filter(
                     LimitOrderModel.ticker == body.ticker,
@@ -178,7 +179,6 @@ async def create_order(
             )
             db.add(order)
             db.flush()
-            # Исполнить market order полностью по встречным заявкам
             qty_left = order.qty
             for counter in counter_orders:
                 counter_qty_left = counter.qty - counter.filled
