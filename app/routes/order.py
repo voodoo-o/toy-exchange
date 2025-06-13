@@ -39,7 +39,7 @@ def create_order(
     if body.direction == "SELL":
         if get_balance(db, current_user.id, body.ticker) < body.qty:
             raise HTTPException(400, "Insufficient balance for sell")
-    # Создание ордера
+    # Не проверяем существование инструмента!
     if isinstance(body, LimitOrderBody):
         order = LimitOrderModel(
             id=order_id,
