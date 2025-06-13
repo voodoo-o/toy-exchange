@@ -24,6 +24,57 @@ def update_balance(db, user_id, ticker, delta):
     if bal.amount < 0:
         raise HTTPException(400, "Insufficient balance")
 
+# Исполнение лимитных ордеров (упрощённо)
+def match_limit_order(db, order):
+    # BUY ищет SELL, SELL ищет BUY
+    if order.direction == "BUY":
+        counter_orders = db.query(LimitOrderModel).filter(
+            LimitOrderModel.ticker == order.ticker,
+            LimitOrderModel.direction == "SELL",
+            LimitOrderModel.status == OrderStatus.NEW,
+            LimitOrderModel.price <= order.price
+        ).order_by(LimitOrderModel.price, LimitOrderModel.timestamp).all()
+    else:
+        counter_orders = db.query(LimitOrderModel).filter(
+            LimitOrderModel.ticker == order.ticker,
+            LimitOrderModel.direction == "BUY",
+            LimitOrderModel.status == OrderStatus.NEW,
+            LimitOrderModel.price >= order.price
+        ).order_by(-LimitOrderModel.price, LimitOrderModel.timestamp).all()
+    qty_left = order.qty - order.filled
+    for counter in counter_orders:
+        counter_qty_left = counter.qty - counter.filled
+        trade_qty = min(qty_left, counter_qty_left)
+        if trade_qty <= 0:
+            continue
+        order.filled += trade_qty
+        counter.filled += trade_qty
+        # Обновить балансы (упрощённо)
+        if order.direction == "BUY":
+            update_balance(db, order.user_id, "RUB", -trade_qty * counter.price)
+            update_balance(db, order.user_id, order.ticker, trade_qty)
+            update_balance(db, counter.user_id, "RUB", trade_qty * counter.price)
+            update_balance(db, counter.user_id, order.ticker, -trade_qty)
+        else:
+            update_balance(db, order.user_id, "RUB", trade_qty * order.price)
+            update_balance(db, order.user_id, order.ticker, -trade_qty)
+            update_balance(db, counter.user_id, "RUB", -trade_qty * order.price)
+            update_balance(db, counter.user_id, order.ticker, trade_qty)
+        qty_left -= trade_qty
+        if counter.filled == counter.qty:
+            counter.status = OrderStatus.EXECUTED
+        else:
+            counter.status = OrderStatus.PARTIALLY_EXECUTED
+        if qty_left == 0:
+            break
+    if order.filled == order.qty:
+        order.status = OrderStatus.EXECUTED
+    elif order.filled > 0:
+        order.status = OrderStatus.PARTIALLY_EXECUTED
+    else:
+        order.status = OrderStatus.NEW
+    return order
+
 @router.post("", response_model=CreateOrderResponse)
 def create_order(
     body: Union[LimitOrderBody, MarketOrderBody],
@@ -39,7 +90,6 @@ def create_order(
     if body.direction == "SELL":
         if get_balance(db, current_user.id, body.ticker) < body.qty:
             raise HTTPException(400, "Insufficient balance for sell")
-    # Не проверяем существование инструмента!
     if isinstance(body, LimitOrderBody):
         order = LimitOrderModel(
             id=order_id,
@@ -52,7 +102,29 @@ def create_order(
             price=body.price,
             filled=0
         )
+        db.add(order)
+        db.flush()
+        match_limit_order(db, order)
+        db.commit()
+        # Если ордер не исполнен вообще, он остаётся в стакане
+        if order.filled == 0:
+            pass
     else:
+        # Для MarketOrder выбрасываем ошибку, если нет встречных заявок
+        if body.direction == "BUY":
+            counter_orders = db.query(LimitOrderModel).filter(
+                LimitOrderModel.ticker == body.ticker,
+                LimitOrderModel.direction == "SELL",
+                LimitOrderModel.status == OrderStatus.NEW
+            ).order_by(LimitOrderModel.price, LimitOrderModel.timestamp).all()
+        else:
+            counter_orders = db.query(LimitOrderModel).filter(
+                LimitOrderModel.ticker == body.ticker,
+                LimitOrderModel.direction == "BUY",
+                LimitOrderModel.status == OrderStatus.NEW
+            ).order_by(-LimitOrderModel.price, LimitOrderModel.timestamp).all()
+        if not counter_orders:
+            raise HTTPException(400, "No counter orders for market order")
         order = MarketOrderModel(
             id=order_id,
             status=OrderStatus.NEW,
@@ -62,7 +134,38 @@ def create_order(
             ticker=body.ticker,
             qty=body.qty
         )
-    db.add(order)
+        db.add(order)
+        db.flush()
+        # Исполнить market order полностью по встречным заявкам
+        qty_left = order.qty
+        for counter in counter_orders:
+            counter_qty_left = counter.qty - counter.filled
+            trade_qty = min(qty_left, counter_qty_left)
+            if trade_qty <= 0:
+                continue
+            if body.direction == "BUY":
+                update_balance(db, current_user.id, "RUB", -trade_qty * counter.price)
+                update_balance(db, current_user.id, body.ticker, trade_qty)
+                update_balance(db, counter.user_id, "RUB", trade_qty * counter.price)
+                update_balance(db, counter.user_id, body.ticker, -trade_qty)
+            else:
+                update_balance(db, current_user.id, "RUB", trade_qty * counter.price)
+                update_balance(db, current_user.id, body.ticker, -trade_qty)
+                update_balance(db, counter.user_id, "RUB", -trade_qty * counter.price)
+                update_balance(db, counter.user_id, body.ticker, trade_qty)
+            qty_left -= trade_qty
+            counter.filled += trade_qty
+            if counter.filled == counter.qty:
+                counter.status = OrderStatus.EXECUTED
+            else:
+                counter.status = OrderStatus.PARTIALLY_EXECUTED
+            if qty_left == 0:
+                break
+        if qty_left > 0:
+            raise HTTPException(400, "Market order not fully executed")
+        order.status = OrderStatus.EXECUTED
+        db.commit()
+        return {"success": True, "order_id": order_id}
     db.commit()
     return {"success": True, "order_id": order_id}
 
