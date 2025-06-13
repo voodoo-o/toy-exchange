@@ -66,14 +66,10 @@ def match_limit_order(db, order):
             update_balance(db, counter.user_id, order.ticker, trade_qty)
         db.flush()  # Немедленно применяем изменения после каждого trade
         qty_left -= trade_qty
-        # Явно обновляем статусы после каждого trade
         if counter.filled == counter.qty:
             counter.status = OrderStatus.EXECUTED
-        elif counter.filled > 0:
-            counter.status = OrderStatus.PARTIALLY_EXECUTED
         if qty_left == 0:
             break
-    # Явно обновляем статус ордера после всех trade
     if order.filled == order.qty:
         order.status = OrderStatus.EXECUTED
     elif order.filled > 0:
