@@ -1,6 +1,6 @@
 from sqlalchemy import Column, String, Integer, DateTime, Enum as SQLEnum, ForeignKey
 from sqlalchemy.orm import declarative_base, relationship
-from datetime import datetime
+from datetime import datetime, timezone
 import enum
 
 Base = declarative_base()
@@ -45,7 +45,7 @@ class LimitOrder(Base):
     id = Column(String, primary_key=True)
     status = Column(SQLEnum(OrderStatus), default=OrderStatus.NEW)
     user_id = Column(String, ForeignKey('users.id'))
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     direction = Column(SQLEnum(Direction))
     ticker = Column(String, ForeignKey('instruments.ticker'))
     qty = Column(Integer)
@@ -57,7 +57,7 @@ class MarketOrder(Base):
     id = Column(String, primary_key=True)
     status = Column(SQLEnum(OrderStatus), default=OrderStatus.NEW)
     user_id = Column(String, ForeignKey('users.id'))
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     direction = Column(SQLEnum(Direction))
     ticker = Column(String, ForeignKey('instruments.ticker'))
     qty = Column(Integer)
@@ -68,6 +68,6 @@ class Transaction(Base):
     ticker = Column(String, ForeignKey('instruments.ticker'))
     amount = Column(Integer)
     price = Column(Integer)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     buyer_id = Column(String, ForeignKey('users.id'))
     seller_id = Column(String, ForeignKey('users.id')) 

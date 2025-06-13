@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.schemas import NewUser, User, Instrument, L2OrderBook, Level, Transaction
-from app.models import User as UserModel, Instrument as InstrumentModel, LimitOrder, Transaction as TransactionModel
+from app.models import User as UserModel, Instrument as InstrumentModel, LimitOrder, Transaction as TransactionModel, OrderStatus
 from app.database import get_db
 import uuid
 from collections import defaultdict
@@ -26,7 +26,7 @@ def list_instruments(db: Session = Depends(get_db)):
 def get_orderbook(ticker: str, limit: int = 10, db: Session = Depends(get_db)):
     if limit > 25:
         limit = 25
-    active_orders = db.query(LimitOrder).filter(LimitOrder.ticker == ticker, LimitOrder.status == "NEW").all()
+    active_orders = db.query(LimitOrder).filter(LimitOrder.ticker == ticker, LimitOrder.status == OrderStatus.NEW).all()
     bids = defaultdict(int)
     asks = defaultdict(int)
     for order in active_orders:
