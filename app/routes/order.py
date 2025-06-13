@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
+from sqlalchemy import desc
 from app.schemas import LimitOrderBody, MarketOrderBody, CreateOrderResponse, LimitOrder, MarketOrder, Ok
 from app.models import LimitOrder as LimitOrderModel, MarketOrder as MarketOrderModel, OrderStatus, Balance, Instrument as InstrumentModel
 from app.auth import get_current_user
@@ -43,7 +44,7 @@ def match_limit_order(db, order):
             LimitOrderModel.direction == "BUY",
             LimitOrderModel.status == OrderStatus.NEW,
             LimitOrderModel.price >= order.price
-        ).order_by(-LimitOrderModel.price, LimitOrderModel.timestamp).all()
+        ).order_by(desc(LimitOrderModel.price), LimitOrderModel.timestamp).all()
     qty_left = order.qty - order.filled
     for counter in counter_orders:
         counter_qty_left = counter.qty - counter.filled
@@ -63,6 +64,7 @@ def match_limit_order(db, order):
             update_balance(db, order.user_id, order.ticker, -trade_qty)
             update_balance(db, counter.user_id, "RUB", -trade_qty * order.price)
             update_balance(db, counter.user_id, order.ticker, trade_qty)
+        db.flush()  # Немедленно применяем изменения после каждого trade
         qty_left -= trade_qty
         if counter.filled == counter.qty:
             counter.status = OrderStatus.EXECUTED
