@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from app.schemas import LimitOrderBody, MarketOrderBody, CreateOrderResponse, LimitOrder, MarketOrder, Ok
-from app.models import LimitOrder as LimitOrderModel, MarketOrder as MarketOrderModel, OrderStatus, Balance, Instrument as InstrumentModel
+from app.models import LimitOrder as LimitOrderModel, MarketOrder as MarketOrderModel, OrderStatus, Balance, Instrument as InstrumentModel, Transaction as TransactionModel
 from app.auth import get_current_user
 from app.database import get_db
 import uuid
@@ -59,11 +59,31 @@ def match_limit_order(db, order):
             update_balance(db, order.user_id, order.ticker, trade_qty)
             update_balance(db, counter.user_id, "RUB", trade_qty * counter.price)
             update_balance(db, counter.user_id, order.ticker, -trade_qty)
+            # Создать сделку
+            db.add(TransactionModel(
+                id=str(uuid.uuid4()),
+                ticker=order.ticker,
+                amount=trade_qty,
+                price=counter.price,
+                timestamp=datetime.now(timezone.utc),
+                buyer_id=order.user_id,
+                seller_id=counter.user_id
+            ))
         else:
             update_balance(db, order.user_id, "RUB", trade_qty * order.price)
             update_balance(db, order.user_id, order.ticker, -trade_qty)
             update_balance(db, counter.user_id, "RUB", -trade_qty * order.price)
             update_balance(db, counter.user_id, order.ticker, trade_qty)
+            # Создать сделку
+            db.add(TransactionModel(
+                id=str(uuid.uuid4()),
+                ticker=order.ticker,
+                amount=trade_qty,
+                price=order.price,
+                timestamp=datetime.now(timezone.utc),
+                buyer_id=counter.user_id,
+                seller_id=order.user_id
+            ))
         db.flush()  # Немедленно применяем изменения после каждого trade
         qty_left -= trade_qty
         if counter.filled == counter.qty:
@@ -190,11 +210,31 @@ async def create_order(
                     update_balance(db, current_user.id, body.ticker, trade_qty)
                     update_balance(db, counter.user_id, "RUB", trade_qty * counter.price)
                     update_balance(db, counter.user_id, body.ticker, -trade_qty)
+                    # Создать сделку
+                    db.add(TransactionModel(
+                        id=str(uuid.uuid4()),
+                        ticker=body.ticker,
+                        amount=trade_qty,
+                        price=counter.price,
+                        timestamp=datetime.now(timezone.utc),
+                        buyer_id=current_user.id,
+                        seller_id=counter.user_id
+                    ))
                 else:
                     update_balance(db, current_user.id, "RUB", trade_qty * counter.price)
                     update_balance(db, current_user.id, body.ticker, -trade_qty)
                     update_balance(db, counter.user_id, "RUB", -trade_qty * counter.price)
                     update_balance(db, counter.user_id, body.ticker, trade_qty)
+                    # Создать сделку
+                    db.add(TransactionModel(
+                        id=str(uuid.uuid4()),
+                        ticker=body.ticker,
+                        amount=trade_qty,
+                        price=counter.price,
+                        timestamp=datetime.now(timezone.utc),
+                        buyer_id=counter.user_id,
+                        seller_id=current_user.id
+                    ))
                 qty_left -= trade_qty
                 counter.filled += trade_qty
                 if counter.filled == counter.qty:
