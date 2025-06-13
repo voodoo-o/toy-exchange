@@ -144,14 +144,30 @@ async def create_order(
             if order.filled == 0:
                 pass
         else:
+            # Сначала создаем рыночный ордер
+            order = MarketOrderModel(
+                id=order_id,
+                status=OrderStatus.NEW,
+                user_id=current_user.id,
+                timestamp=datetime.now(timezone.utc),
+                direction=body.direction,
+                ticker=body.ticker,
+                qty=body.qty
+            )
+            db.add(order)
+            db.flush()
+
             if body.direction == "BUY":
                 counter_orders = db.query(LimitOrderModel).filter(
                     LimitOrderModel.ticker == body.ticker,
                     LimitOrderModel.direction == "SELL",
                     LimitOrderModel.status == OrderStatus.NEW
                 ).order_by(LimitOrderModel.price, LimitOrderModel.timestamp).all()
+                
                 if not counter_orders:
-                    raise HTTPException(400, "No counter orders for market order")
+                    db.commit()
+                    return {"success": True, "order_id": order_id}
+
                 qty_left = body.qty
                 total_rub_needed = 0
                 for counter in counter_orders:
@@ -164,7 +180,8 @@ async def create_order(
                     if qty_left == 0:
                         break
                 if qty_left > 0:
-                    raise HTTPException(400, "Market order not fully executed")
+                    db.commit()
+                    return {"success": True, "order_id": order_id}
                 if get_balance(db, current_user.id, "RUB") < total_rub_needed:
                     raise HTTPException(400, "Insufficient balance for buy")
             else:
@@ -173,8 +190,11 @@ async def create_order(
                     LimitOrderModel.direction == "BUY",
                     LimitOrderModel.status == OrderStatus.NEW
                 ).order_by(-LimitOrderModel.price, LimitOrderModel.timestamp).all()
+                
                 if not counter_orders:
-                    raise HTTPException(400, "No counter orders for market order")
+                    db.commit()
+                    return {"success": True, "order_id": order_id}
+
                 qty_left = body.qty
                 for counter in counter_orders:
                     counter_qty_left = counter.qty - counter.filled
@@ -185,20 +205,11 @@ async def create_order(
                     if qty_left == 0:
                         break
                 if qty_left > 0:
-                    raise HTTPException(400, "Market order not fully executed")
+                    db.commit()
+                    return {"success": True, "order_id": order_id}
                 if get_balance(db, current_user.id, body.ticker) < body.qty:
                     raise HTTPException(400, "Insufficient balance for sell")
-            order = MarketOrderModel(
-                id=order_id,
-                status=OrderStatus.NEW,
-                user_id=current_user.id,
-                timestamp=datetime.now(timezone.utc),
-                direction=body.direction,
-                ticker=body.ticker,
-                qty=body.qty
-            )
-            db.add(order)
-            db.flush()
+
             qty_left = order.qty
             for counter in counter_orders:
                 counter_qty_left = counter.qty - counter.filled
@@ -244,8 +255,9 @@ async def create_order(
                 if qty_left == 0:
                     break
             if qty_left > 0:
-                raise HTTPException(400, "Market order not fully executed")
-            order.status = OrderStatus.EXECUTED
+                order.status = OrderStatus.NEW
+            else:
+                order.status = OrderStatus.EXECUTED
             db.commit()
             print(f"[ORDER DEBUG] user_id={current_user.id} RUB_balance={get_balance(db, current_user.id, 'RUB')}")
             return {"success": True, "order_id": order_id}
