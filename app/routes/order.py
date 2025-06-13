@@ -18,6 +18,8 @@ def get_balance(db, user_id, ticker):
 def update_balance(db, user_id, ticker, delta):
     bal = db.query(Balance).get((user_id, ticker))
     if not bal:
+        if delta < 0:
+            raise HTTPException(400, "Insufficient balance")
         bal = Balance(user_id=user_id, ticker=ticker, amount=0)
         db.add(bal)
     bal.amount += delta
@@ -129,7 +131,6 @@ async def create_order(
                 ).order_by(LimitOrderModel.price, LimitOrderModel.timestamp).all()
                 if not counter_orders:
                     raise HTTPException(400, "No counter orders for market order")
-                # Проверка баланса: считаем, сколько RUB нужно для покупки по всем встречным заявкам
                 qty_left = body.qty
                 total_rub_needed = 0
                 for counter in counter_orders:
@@ -153,7 +154,19 @@ async def create_order(
                 ).order_by(-LimitOrderModel.price, LimitOrderModel.timestamp).all()
                 if not counter_orders:
                     raise HTTPException(400, "No counter orders for market order")
-                # Для SELL проверка баланса уже есть выше
+                qty_left = body.qty
+                for counter in counter_orders:
+                    counter_qty_left = counter.qty - counter.filled
+                    trade_qty = min(qty_left, counter_qty_left)
+                    if trade_qty <= 0:
+                        continue
+                    qty_left -= trade_qty
+                    if qty_left == 0:
+                        break
+                if qty_left > 0:
+                    raise HTTPException(400, "Market order not fully executed")
+                if get_balance(db, current_user.id, body.ticker) < body.qty:
+                    raise HTTPException(400, "Insufficient balance for sell")
             order = MarketOrderModel(
                 id=order_id,
                 status=OrderStatus.NEW,
@@ -194,10 +207,13 @@ async def create_order(
                 raise HTTPException(400, "Market order not fully executed")
             order.status = OrderStatus.EXECUTED
             db.commit()
+            print(f"[ORDER DEBUG] user_id={current_user.id} RUB_balance={get_balance(db, current_user.id, 'RUB')}")
             return {"success": True, "order_id": order_id}
         db.commit()
         return {"success": True, "order_id": order_id}
     except HTTPException as e:
+        if e.status_code == 400:
+            print(f"[ORDER 400] {e.detail}")
         raise e
     except Exception as e:
         import traceback
