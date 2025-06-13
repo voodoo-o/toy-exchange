@@ -119,6 +119,9 @@ async def create_order(
         instrument = db.query(InstrumentModel).get(body.ticker)
         if not instrument:
             raise HTTPException(400, "Instrument not found")
+        # Проверка на корректность qty и price
+        if (is_limit and (body.qty <= 0 or body.price <= 0)) or (not is_limit and body.qty <= 0):
+            raise HTTPException(400, "Invalid qty or price")
         # Проверка баланса и встречных заявок ДО создания ордера и изменения баланса
         if is_limit:
             if body.direction == "BUY":
@@ -166,6 +169,7 @@ async def create_order(
                         break
                 if qty_left > 0:
                     raise HTTPException(400, "Market order not fully executed")
+                # Явная проверка баланса перед созданием ордера
                 if get_balance(db, current_user.id, "RUB") < total_rub_needed:
                     raise HTTPException(400, "Insufficient balance for buy")
             else:
@@ -187,6 +191,7 @@ async def create_order(
                         break
                 if qty_left > 0:
                     raise HTTPException(400, "Market order not fully executed")
+                # Явная проверка баланса перед созданием ордера
                 if get_balance(db, current_user.id, body.ticker) < body.qty:
                     raise HTTPException(400, "Insufficient balance for sell")
             order = MarketOrderModel(
