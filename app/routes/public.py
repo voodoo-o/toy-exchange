@@ -30,14 +30,20 @@ def list_instruments(db: Session = Depends(get_db)):
 def get_orderbook(ticker: str, limit: int = 10, db: Session = Depends(get_db)):
     if limit > 25:
         limit = 25
-    active_orders = db.query(LimitOrder).filter(LimitOrder.ticker == ticker, LimitOrder.status == OrderStatus.NEW).all()
+    active_orders = db.query(LimitOrder).filter(
+        LimitOrder.ticker == ticker,
+        LimitOrder.status.in_([OrderStatus.NEW, OrderStatus.PARTIALLY_EXECUTED])
+    ).all()
     bids = defaultdict(int)
     asks = defaultdict(int)
     for order in active_orders:
+        remaining_qty = order.qty - order.filled
+        if remaining_qty <= 0:
+            continue
         if order.direction == "BUY":
-            bids[order.price] += order.qty - order.filled
+            bids[order.price] += remaining_qty
         else:
-            asks[order.price] += order.qty - order.filled
+            asks[order.price] += remaining_qty
     bid_levels = [Level(price=price, qty=qty) for price, qty in sorted(bids.items(), reverse=True)[:limit]]
     ask_levels = [Level(price=price, qty=qty) for price, qty in sorted(asks.items())[:limit]]
     return L2OrderBook(bid_levels=bid_levels, ask_levels=ask_levels)
