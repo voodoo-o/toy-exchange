@@ -52,5 +52,9 @@ def get_orderbook(ticker: str, limit: int = 10, db: Session = Depends(get_db)):
 def get_transaction_history(ticker: str, limit: int = 10, db: Session = Depends(get_db)):
     if limit > 100:
         limit = 100
+    # Проверяем существование инструмента
+    instrument = db.query(InstrumentModel).get(ticker)
+    if not instrument:
+        return []  # Возвращаем пустой список вместо ошибки
     transactions = db.query(TransactionModel).filter(TransactionModel.ticker == ticker).order_by(TransactionModel.timestamp.desc()).limit(limit).all()
     return transactions 
